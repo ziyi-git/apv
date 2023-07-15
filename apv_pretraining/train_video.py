@@ -49,17 +49,28 @@ def main():
 
     import tensorflow as tf
 
+    # tf.config.experimental_run_functions_eagerly(True or False)用于配制TF的计算模式
+    # True: Eager Execution模式用于debug，不创建后续的计算图
+    # False: JIT(Just-In-Time)模式在运行时将计算图编译成机器码，提高执行速度
     tf.config.experimental_run_functions_eagerly(not config.jit)
     message = "No GPU found. To actually train on CPU remove this assert."
     assert tf.config.experimental.list_physical_devices("GPU"), message
+    # 设置每一块GPU的内存增长方式
+    # True: 在需要时再申请内存，而不是一开始就申请所有可用的GPU内存
     for gpu in tf.config.experimental.list_physical_devices("GPU"):
         tf.config.experimental.set_memory_growth(gpu, True)
+    # 断言条件config.precision in (16, 32)为False则将config.precision作为异常抛出
     assert config.precision in (16, 32), config.precision
     if config.precision == 16:
         from tensorflow.keras.mixed_precision import experimental as prec
 
         prec.set_policy(prec.Policy("mixed_float16"))
 
+    # 来自于GPT-4的code interpreter的解释（未验证）：
+    # ReplayWithoutAction继承自Replay，主要覆盖了_generate_chunks方法
+    # 从论文中的“Action-free Pre-training from Videos”部分来看，它关注
+    # 的应该是三个模型中的transition model，即状态的转移过程。但不关注是什么
+    # action导致了状态的转移。
     train_replay = common.ReplayWithoutAction(
         logdir / "train_episodes",
         load_directory=load_logdir / "train_episodes",
