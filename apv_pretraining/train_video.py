@@ -71,17 +71,30 @@ def main():
     # 从论文中的“Action-free Pre-training from Videos”部分来看，它关注
     # 的应该是三个模型中的transition model，即状态的转移过程。但不关注是什么
     # action导致了状态的转移。
+    #
+    # transition model的作用是什么？
+    # transition model仅仅从上一个状态来预测当前状态。这可能是用于生成一个状态
+    # 转移的序列。这种状态转移的序列是否准确，即是否可以用作智能体在环境中的经验？
+    # 论文中加入了一个前置条件：transition model需要和representation model
+    # 的预测越接近越越好。
     train_replay = common.ReplayWithoutAction(
         logdir / "train_episodes",
         load_directory=load_logdir / "train_episodes",
         **config.replay
     )
+    # 创建一个计数器对象common.Counter: step
+    # step使用train_replay对象中存储的总步数作为初始值开始计数训练的步数
     step = common.Counter(train_replay.stats["total_steps"])
     outputs = [
-        common.TerminalOutput(),
-        common.JSONLOutput(logdir),
-        common.TensorBoardOutput(logdir),
+        common.TerminalOutput(),  # 终端输出
+        common.JSONLOutput(logdir),  # 将输出保存为json格式
+        common.TensorBoardOutput(logdir),  # 将输出保存为tensorboard可读取的格式
     ]
+    # 解释multiplier=config.action_repeat
+    # 在强化学习中，每个训练步骤可能包含了几个时间步骤，几个时间步骤会共享（或重复）相同的
+    # 动作（动作重复），因此总的训练步骤应该是总的训练步骤乘以重复次数。
+    # 为什么会有动作重复？举例来说，如果智能体通过观测视频来做出决策，当视频的帧率为25时，
+    # 智能体并不需要在每秒都做出25次决策，可以每5帧做出1次决策，这样动作重复就是5。
     logger = common.Logger(step, outputs, multiplier=config.action_repeat)
     metrics = collections.defaultdict(list)
 
