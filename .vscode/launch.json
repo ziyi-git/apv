@@ -13,8 +13,8 @@
             "justMyCode": false,
             "python": "/home/ubuntu/anaconda3/envs/env_apv/bin/python",
             "args": [
-                "--logdir", "/home/ubuntu/data/apv/debug_pretrain",
-                "--load_logdir", "/home/ubuntu/pretraining_datasets/metaworld_ml10",
+                "--logdir", "/home/ubuntu/workspace/data/apv/debug_pretrain",
+                "--load_logdir", "/home/ubuntu/workspace/data/apv/pretraining_datasets/metaworld_ml10",
                 "--configs", "metaworld_pretrain"
             ]
         }

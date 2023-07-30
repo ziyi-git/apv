@@ -114,14 +114,14 @@ class EnsembleRSSM(common.Module):
             lambda x: tf.einsum("b,b...->b...", 1.0 - is_first.astype(x.dtype), x),
             (prev_state,),
         )
-        prior = self.img_step(prev_state, sample)
+        prior = self.img_step(prev_state, sample)  # deter0: h_{t}, stoch: z^_{t}, logit^
         x = tf.concat([prior[f"deter{self._rnn_layers - 1}"], embed], -1)
         x = self.get("obs_out", tfkl.Dense, self._hidden)(x)
         x = self.get("obs_out_norm", NormLayer, self._norm)(x)
         x = self._act(x)
         stats = self._suff_stats_layer("obs_dist", x)
         dist = self.get_dist(stats)
-        stoch = dist.sample() if sample else dist.mode()
+        stoch = dist.sample() if sample else dist.mode()  # h_{t} + o_{t} -> z_{t}
         post = {"stoch": stoch, **stats}
         for i in range(self._rnn_layers):
             post[f"deter{i}"] = prior[f"deter{i}"]
@@ -129,18 +129,18 @@ class EnsembleRSSM(common.Module):
 
     @tf.function
     def img_step(self, prev_state, sample=True):
-        prev_stoch = self._cast(prev_state["stoch"])
+        prev_stoch = self._cast(prev_state["stoch"])  # z_(t-1)
         if self._discrete:
             shape = prev_stoch.shape[:-2] + [self._stoch * self._discrete]
-            prev_stoch = tf.reshape(prev_stoch, shape)
-        x = tf.concat([prev_stoch, self.zero_action(prev_stoch.shape[0])], -1)
-        x = self.get("img_in", tfkl.Dense, self._hidden)(x)
+            prev_stoch = tf.reshape(prev_stoch, shape)  # (16, 32, 32) -> (16, 1024)
+        x = tf.concat([prev_stoch, self.zero_action(prev_stoch.shape[0])], -1)  # (16, 1074)
+        x = self.get("img_in", tfkl.Dense, self._hidden)(x)  # (16, 1024)
         x = self.get("img_in_norm", NormLayer, self._norm)(x)
-        x = self._act(x)
+        x = self._act(x)  # 对z_{t-1}进行了一系列转换后再参与到h_{t} = f(z_{t-1}, h_{t-1})
         deters = []
         for i in range(self._rnn_layers):
-            deter = prev_state[f"deter{i}"]
-            x, deter = self._cells[i](x, [deter])
+            deter = prev_state[f"deter{i}"]  # h_(t-1)
+            x, deter = self._cells[i](x, [deter])  # h_t = f(z_{t-1}, h_{t-1})
             deters.append(deter[0])
         deter = deter[0]  # Keras wraps the state in a list.
         stats = self._suff_stats_ensemble(x)
