@@ -62,7 +62,7 @@ class EnsembleRSSM(common.Module):
 
     @tf.function
     def observe(self, embed, is_first, state=None):
-        swap = lambda x: tf.transpose(x, [1, 0] + list(range(2, len(x.shape))))
+        swap = lambda x: tf.transpose(x, [1, 0] + list(range(2, len(x.shape))))  # 
         if state is None:
             state = self.initial(tf.shape(embed)[0])
         post, prior = common.static_scan(

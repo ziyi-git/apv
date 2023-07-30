@@ -78,11 +78,18 @@ class Replay:
         example = next(iter(self._generate_chunks(length)))
         dataset = tf.data.Dataset.from_generator(
             lambda: self._generate_chunks(length),
+            # {'image': dtype('uint8'), 'is_terminal': dtype('bool'),
+            #  'is_first': dtype('bool'), 'action': dtype('float32')}
             {k: v.dtype for k, v in example.items()},
+            # {'image': (50, 64, 64, 3), 'is_terminal': (50,),
+            #  'is_first': (50,), 'action': (50, 1)}
             {k: v.shape for k, v in example.items()},
         )
+        # <BatchDataset shapes: 
+        # {image: (16, 50, 64, 64, 3), is_terminal: (16, 50), is_first: (16, 50), action: (16, 50, 1)}, 
+        #  types: {image: tf.uint8, is_terminal: tf.bool, is_first: tf.bool, action: tf.float32}>
         dataset = dataset.batch(batch, drop_remainder=True)
-        dataset = dataset.prefetch(5)
+        dataset = dataset.prefetch(5)  # 允许预先取5个batch的数据放在内存中
         return dataset
 
     def _generate_chunks(self, length):
