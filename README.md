@@ -44,9 +44,15 @@ Get dependencies:
 sudo apt update
 sudo apt update sudo apt install libosmesa6-dev libgl1-mesa-dev libgl1-mesa-glx libglew-dev patchelf libglfw3 libglfw3-dev
 ```
-Install mujoco and mujoco-py according to this [website](https://zhuanlan.zhihu.com/p/352304615)
-```
 
+Install mujoco according to this [website](https://zhuanlan.zhihu.com/p/352304615).
+
+Create your environment:
+```
+conda create -n env_apv python=3.9
+conda install cudatoolkit==11.3.1
+conda install cudnn==8.2.1
+pip install -r requirements.txt --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 Run video pre-training (if you want to run pre-training by yourself):
