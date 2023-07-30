@@ -43,6 +43,10 @@ Get dependencies:
 ```
 pip install tensorflow==2.6.0 tensorflow_text==2.6.0 tensorflow_estimator==2.6.0 tensorflow_probability==0.14.1 ruamel.yaml 'gym[atari]' dm_control git+https://github.com/rlworkgroup/metaworld.git@a0009ed9a208ff9864a5c1368c04c273bb20dd06#egg=metaworld
 ```
+1. Install mujoco and mujoco-py according to this [website](https://zhuanlan.zhihu.com/p/352304615)
+```
+
+```
 
 Run video pre-training (if you want to run pre-training by yourself):
 
