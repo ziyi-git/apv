@@ -50,6 +50,7 @@ Install mujoco according to this [website](https://zhuanlan.zhihu.com/p/35230461
 Create your environment:
 ```
 conda create -n env_apv python=3.9
+conda activate env_apv
 conda install cudatoolkit==11.3.1
 conda install cudnn==8.2.1
 pip install -r requirements.txt --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple
