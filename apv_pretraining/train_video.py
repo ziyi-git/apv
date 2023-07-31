@@ -143,10 +143,8 @@ def main():
     train_dataset = iter(train_replay.dataset(**config.dataset))
     report_dataset = iter(train_replay.dataset(**config.dataset))
     agnt = agent.Agent(config, obs_space, act_space, step)
-    # def train(self, data, state=None)
-    # CarryOverState在内部将上一次的结果保存为state，在新一次计算时train的输入
-    # 为data，而CarryOverState会按照train(data, state=state)来计算，并将结
-    # 果继续更新为state保存在内部。
+    # train(self, data, state=last_state)，last_state是上一次调用
+    # train产生的state，在common.CarryOverState内部由self._state保存
     train_agent = common.CarryOverState(agnt.train)
     train_agent(next(train_dataset))
 

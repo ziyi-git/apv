@@ -16,9 +16,17 @@ class Agent(common.Module):
     @tf.function
     def train(self, data, state=None):
         metrics = {}
+        # state >>
+        # {'logit': *, 'stoch': *, 'deter0': *}
+        # outputs >>
+        # {'embed': *, 'feat': *, 'post': *, 'prior': *, 'likes': *, 'kl': *}
+        # mets >>
+        # {'kl_loss' : *, 'image_loss': *, 'model_kl': *, 'prior_ent': *, 
+        #  'post_ent': *, 'model_loss': *, 'model_loss_scale': *, 
+        #  'model_grad_norm': *}
         state, outputs, mets = self.wm.train(data, state)
         metrics.update(mets)
-        start = outputs["post"]
+        start = outputs["post"]  # start not used?
         return state, metrics
 
     @tf.function
@@ -47,7 +55,13 @@ class WorldModel(common.Module):
     def train(self, data, state=None):
         with tf.GradientTape() as model_tape:
             model_loss, state, outputs, metrics = self.loss(data, state)
+        # [self.encoder, self.rssm, *self.heads.values()]
+        # *self.heads.values()是解包操作，等价于
+        # [self.encoder, self.rssm] + list(self.heads.values())
         modules = [self.encoder, self.rssm, *self.heads.values()]
+        # self.model_opt(model_tape, model_loss, modules)更新模型参数，返回
+        # {"model_loss": *, "model_grad_norm": *, "model_loss_scale": *}
+        # 该字典添加到metrics中
         metrics.update(self.model_opt(model_tape, model_loss, modules))
         return state, outputs, metrics
 
