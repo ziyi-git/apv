@@ -53,6 +53,9 @@ class WorldModel(common.Module):
         self.model_opt = common.Optimizer("model", **config.model_opt)
 
     def train(self, data, state=None):
+        # 创建上下文，在前向传播过程中的中间变量，这些中间变量用于计算梯度dW：
+        # (1) trainable=True的tf.Varable，例如W
+        # (2) 神经元的激活值，例如A
         with tf.GradientTape() as model_tape:
             model_loss, state, outputs, metrics = self.loss(data, state)
         # [self.encoder, self.rssm, *self.heads.values()]

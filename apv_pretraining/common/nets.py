@@ -24,8 +24,20 @@ class EnsembleRSSM(common.Module):
         rnn_layers=1,
     ):
         super().__init__()
+        ################################################################################################################
+        # self._ensemble为1
+        # self._stoch为32，可能是z的维度
+        # self._deter为1024，可能是h的维度
+        # self._hidden为1024，？
+        # self._discrete为32，是否使用随机离散变量？
+        # self._act为32，是一个函数指针？
+        # self._norm为none，？
+        # self._std_act是sigmoid2，标准偏差的激活函数，是一个函数指针？
+        # self._min_std为0.1，？
+        # self._rnn_layers，循环神经网络层的数量
+        ################################################################################################################
         self._ensemble = ensemble
-        self._stoch = stoch
+        self._stoch = stoch        
         self._deter = deter
         self._hidden = hidden
         self._discrete = discrete
@@ -34,8 +46,14 @@ class EnsembleRSSM(common.Module):
         self._std_act = std_act
         self._min_std = min_std
         self._rnn_layers = rnn_layers
+        ################################################################################################################
+        # self._cells是隐藏层单元，而self._cell是最后一个输出单元？？？
+        ################################################################################################################
         self._cells = [GRUCell(self._deter, norm=True) for _ in range(self._rnn_layers)]
         self._cell = GRUCell(self._deter, norm=True)
+        ################################################################################################################
+        # 将x的数据类型变为float16
+        ################################################################################################################
         self._cast = lambda x: tf.cast(x, prec.global_policy().compute_dtype)
 
     def initial(self, batch_size):
@@ -218,7 +236,7 @@ class Encoder(common.Module):
         cnn_kernels=(4, 4, 4, 4),
         mlp_layers=[400, 400, 400, 400],
     ):
-        self.shapes = shapes
+        self.shapes = shapes  
         self.cnn_keys = [
             k for k, v in shapes.items() if re.match(cnn_keys, k) and len(v) == 3
         ]
@@ -235,12 +253,26 @@ class Encoder(common.Module):
 
     @tf.function
     def __call__(self, data):
+        ################################################################################################################
+        # __call__将每一幅图像编码为1 x 1536的向量
+        # self.shapes就是obs_space:
+        # {
+        #  'image': Box(0, 255, (64, 64,...3), uint8), 
+        #  'reward': Box(-inf, inf, (), float32), 
+        #  'is_first': Box(False, True, (), bool),
+        #  'is_last': Box(False, True, (), bool),
+        #  'is_terminal': Box(False, True, (), bool),
+        #  'state': Box([-0.525   0.348 ..., float32),
+        #  'success': Box(False, True, (), bool)
+        # }
+        # key为'image', shape为(64, 64, 3)
+        ################################################################################################################
         key, shape = list(self.shapes.items())[0]
-        batch_dims = data[key].shape[: -len(shape)]
+        batch_dims = data[key].shape[: -len(shape)] 
         data = {
             k: tf.reshape(v, (-1,) + tuple(v.shape)[len(batch_dims) :])
             for k, v in data.items()
-        }
+        }  # [16, 25, 64, 64, 3] -> [400, 64, 64, 3]
         outputs = []
         if self.cnn_keys:
             outputs.append(self._cnn({k: data[k] for k in self.cnn_keys}))
@@ -250,13 +282,25 @@ class Encoder(common.Module):
         return output.reshape(batch_dims + output.shape[1:])
 
     def _cnn(self, data):
+        ################################################################################################################
+        # data实际为{'image': <tf.Tensor: shape=(400, 64, 64 ,3)}，400是因为16 * 25
+        ################################################################################################################
         x = tf.concat(list(data.values()), -1)
         x = x.astype(prec.global_policy().compute_dtype)
+        ################################################################################################################
+        # (400, 64, 64 ,3) -> (400, 31, 31, 48)  -> (400, 14, 14, 96) -> (400, 6, 6, 192) -> (400, 2, 2, 384)
+        ################################################################################################################
         for i, kernel in enumerate(self._cnn_kernels):
-            depth = 2 ** i * self._cnn_depth
+            depth = 2 ** i * self._cnn_depth  # ? 2^i * 48
+            ############################################################################################################
+            # 检查是否有名为"conv{i}"的层，没有则创建：channel数为depth，kernel size为kernel，步长为2
+            ############################################################################################################
             x = self.get(f"conv{i}", tfkl.Conv2D, depth, kernel, 2)(x)
             x = self.get(f"convnorm{i}", NormLayer, self._norm)(x)
             x = self._act(x)
+        ################################################################################################################
+        # (400, 2, 2, 384) -> (400, 1536)
+        ################################################################################################################
         return x.reshape(tuple(x.shape[:-3]) + (-1,))
 
     def _mlp(self, data):
