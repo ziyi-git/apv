@@ -199,17 +199,17 @@ class MetaWorld:
             ALL_V2_ENVIRONMENTS_GOAL_HIDDEN,
         )
 
-        os.environ["MUJOCO_GL"] = "egl"
+        os.environ["MUJOCO_GL"] = "egl"  # 配置Mujoco物理引擎的渲染模式
 
         task = f"{name}-v2-goal-observable"
         env_cls = ALL_V2_ENVIRONMENTS_GOAL_OBSERVABLE[task]
-        self._env = env_cls(seed=seed)
-        self._env._freeze_rand_vec = False
-        self._size = size
-        self._action_repeat = action_repeat
-        self._use_gripper = use_gripper
+        self._env = env_cls(seed=seed)  # 初始化环境的随机状态
+        self._env._freeze_rand_vec = False  # False-环境在重置时初始状态保持随机化
+        self._size = size  # 渲染图像的尺寸
+        self._action_repeat = action_repeat  # 多少个step共享一个action
+        self._use_gripper = use_gripper  # 是否使用爪夹？
 
-        self._camera = camera
+        self._camera = camera  # 如果设置了camera角度，则会从这个角度生成？这里none因为作者已经提前设置了5个角度
 
     @property
     def obs_space(self):

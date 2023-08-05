@@ -14,7 +14,7 @@
             "python": "/home/ubuntu/anaconda3/envs/env_apv/bin/python",
             "args": [
                 "--logdir", "/home/ubuntu/workspace/data/apv/debug_pretrain",
-                "--load_logdir", "/home/ubuntu/workspace/data/apv/pretraining_datasets/metaworld_ml10",
+                "--load_logdir", "/home/ubuntu/workspace/data/apv/pretraining_datasets/rlbench",
                 "--configs", "metaworld_pretrain"
             ]
         }

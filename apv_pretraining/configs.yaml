@@ -63,7 +63,7 @@ metaworld_pretrain:
   replay: {minlen: 25, maxlen: 25}
   dataset: {batch: 16, length: 25}
   action_repeat: 1
-  steps: 5e7
+  steps: 6e5
   log_every: 100
   train_every: 1
   rssm: {hidden: 1024, deter: 1024}

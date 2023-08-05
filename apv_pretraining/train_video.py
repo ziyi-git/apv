@@ -30,6 +30,7 @@ import common
 
 def main():
 
+    # 以configs.yaml中的defaults中的配置为基石，用metaworld_pretrain的配置覆盖或新增至基石中
     configs = yaml.safe_load(
         (pathlib.Path(sys.argv[0]).parent / "configs.yaml").read_text()
     )
@@ -52,8 +53,8 @@ def main():
     # tf.config.experimental_run_functions_eagerly(True or False)用于配制TF的计算模式
     # True: Eager Execution模式用于debug，不创建后续的计算图
     # False: JIT(Just-In-Time)模式在运行时将计算图编译成机器码，提高执行速度
-    # tf.config.experimental_run_functions_eagerly(not config.jit)
-    tf.config.experimental_run_functions_eagerly(True)
+    tf.config.experimental_run_functions_eagerly(not config.jit)
+    # tf.config.experimental_run_functions_eagerly(True)
     message = "No GPU found. To actually train on CPU remove this assert."
     assert tf.config.experimental.list_physical_devices("GPU"), message
     # 设置每一块GPU的内存增长方式
@@ -78,6 +79,13 @@ def main():
     # 转移的序列。这种状态转移的序列是否准确，即是否可以用作智能体在环境中的经验？
     # 论文中加入了一个前置条件：transition model需要和representation model
     # 的预测越接近越越好。
+    # ===============================================================
+    # ReplayWithoutAction和Replay的区别在于_generate_chunks方法：
+    # ReplayWithoutAction._generate_chunks方法将采样的序列的action置为0
+    # ===============================================================
+    # Replay的作用：
+    # 加载情节，制作为batch送入训练
+    # 情节总步数超出限制时，请空并加入新的情节用于制作batch训练
     train_replay = common.ReplayWithoutAction(
         logdir / "train_episodes",
         load_directory=load_logdir / "train_episodes",
@@ -129,7 +137,7 @@ def main():
                 config.render_size,
                 config.camera,
             )
-            env = common.NormalizeAction(env)
+            env = common.NormalizeAction(env)  # 对env封装了一次
         else:
             raise NotImplementedError(suite)
         env = common.TimeLimit(env, config.time_limit)
@@ -173,7 +181,15 @@ def main():
                 logdir / "decoder_variables.pkl", verbose=False
             )
 
-    env.close()
+    # env.close()
+    # 对于MetaWorld这个类，直接调用env.close()会报错为该类没有此方法
+    # 这里我先用try...except...方法确保不报错，后期再看怎么修改：例如
+    # 可以尝试在MetaWorld这个类中覆写此方法，或者参考其它env类的实现
+    try:
+        env.close()
+    except Exception:
+        pass
+
     agnt.save(logdir / "variables.pkl")
     agnt.wm.rssm.save(logdir / "rssm_variables.pkl", verbose=False)
     agnt.wm.encoder.save(logdir / "encoder_variables.pkl", verbose=False)
