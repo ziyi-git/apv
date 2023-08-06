@@ -30,7 +30,7 @@ class EnsembleRSSM(common.Module):
         # self._deter为1024，可能是h的维度
         # self._hidden为1024，？
         # self._discrete为32，是否使用随机离散变量？
-        # self._act为32，是一个函数指针？
+        # self._act为32，是一个激活函数指针？
         # self._norm为none，？
         # self._std_act是sigmoid2，标准偏差的激活函数，是一个函数指针？
         # self._min_std为0.1，？
@@ -80,12 +80,12 @@ class EnsembleRSSM(common.Module):
 
     @tf.function
     def observe(self, embed, is_first, state=None):
-        swap = lambda x: tf.transpose(x, [1, 0] + list(range(2, len(x.shape))))  # 
+        swap = lambda x: tf.transpose(x, [1, 0] + list(range(2, len(x.shape))))  # (16, 25, 1536) -> (25, 16, 1536)
         if state is None:
             state = self.initial(tf.shape(embed)[0])
         post, prior = common.static_scan(
             lambda prev, inputs: self.obs_step(prev[0], *inputs),
-            (swap(embed), swap(is_first)),
+            (swap(embed), swap(is_first)),  # (tensor(25, 16, 1536), tensor(25, 16))
             (state, state),
         )
         post = {k: swap(v) for k, v in post.items()}
@@ -147,18 +147,54 @@ class EnsembleRSSM(common.Module):
 
     @tf.function
     def img_step(self, prev_state, sample=True):
-        prev_stoch = self._cast(prev_state["stoch"])  # z_(t-1)
+        ################################################################################################################
+        # prev_state -> prev_state["stoch"] -> temp -> deter(h_{t}) -> stoch(zhat_{t})
+        #       ↑                                        |                 |
+        #       ↑                                          --------↓--------
+        #       ------------------------------------------------prior 
+        ################################################################################################################
+        prev_stoch = self._cast(prev_state["stoch"])
         if self._discrete:
+            ############################################################################################################
+            # prev_stoch: (16, 32, 32) -> (16, 1024)
+            # self._discrete是什么意思？
+            ############################################################################################################
             shape = prev_stoch.shape[:-2] + [self._stoch * self._discrete]
-            prev_stoch = tf.reshape(prev_stoch, shape)  # (16, 32, 32) -> (16, 1024)
+            prev_stoch = tf.reshape(prev_stoch, shape)
+        ################################################################################################################
+        # 计算先验h_{t}，利用公式Appendix B中公式(11):
+        # h_{t} = f_phai(h_{t-1}, z_{t-1})
+        # 但是，看看Appendix B中公式(13)：
+        # h_{t} = f_phai(h_{t-1}, z_{t-1}, a_{t-1})
+        # 也就是在计算h_{t}时，正常的action_conditional计算过程是要考虑a_{t-1}的，而且是要两步来完成计算：
+        # step1: temp = f_temp(z_{t-1}, a_{t-1})
+        # step2: h_{t} = f_phai(h_{t-1}, temp)
+        # 因此下面"4句"实际执行了step1得到temp，由于action_free的原因，用self.zero_action(prev_stoch.shape[0])来抹掉了行为的影响
+        ################################################################################################################
         x = tf.concat([prev_stoch, self.zero_action(prev_stoch.shape[0])], -1)  # (16, 1074)
         x = self.get("img_in", tfkl.Dense, self._hidden)(x)  # (16, 1024)
         x = self.get("img_in_norm", NormLayer, self._norm)(x)
-        x = self._act(x)  # 对z_{t-1}进行了一系列转换后再参与到h_{t} = f(z_{t-1}, h_{t-1})
+        x = self._act(x)  # -> x is temp
+        ################################################################################################################
+        # 假设self._cells有3个GRUCell类实例串联，计算过程如下：
+        #    self._cells[0]          self._cells[1]          self._cells[2]
+        #
+        # prev_state["deter0"]    prev_state["deter1"]    prev_state["deter2"]
+        #          +                      +                       +
+        #        temp           -------- temp           -------- temp
+        #          ↓            |         ↓             |         ↓
+        #       deter0 ----------       deter1 ----------       deter2
+        #
+        #     prior["deter0"]        prior["deter1"]         prior["deter2"]
+        # 实际self._cells仅有1个GRUCell类实例，因此只输出了deter0，也就是h_{t}
+        ################################################################################################################
         deters = []
         for i in range(self._rnn_layers):
-            deter = prev_state[f"deter{i}"]  # h_(t-1)
-            x, deter = self._cells[i](x, [deter])  # h_t = f(z_{t-1}, h_{t-1})
+            deter = prev_state[f"deter{i}"]
+            ############################################################################################################
+            # 由于self._cells[i]的call函数return output, [output]，所以x就是deter[0]
+            ############################################################################################################
+            x, deter = self._cells[i](x, [deter])
             deters.append(deter[0])
         deter = deter[0]  # Keras wraps the state in a list.
         stats = self._suff_stats_ensemble(x)
@@ -279,7 +315,7 @@ class Encoder(common.Module):
         if self.mlp_keys:
             outputs.append(self._mlp({k: data[k] for k in self.mlp_keys}))
         output = tf.concat(outputs, -1)
-        return output.reshape(batch_dims + output.shape[1:])
+        return output.reshape(batch_dims + output.shape[1:])  # (400, 1536) -> (16, 25, 1536)
 
     def _cnn(self, data):
         ################################################################################################################
