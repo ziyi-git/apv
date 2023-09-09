@@ -79,3 +79,17 @@ python apv_finetuning/train.py --logdir {save path} --load_logdir {path to the p
 - Use `TF_XLA_FLAGS=--tf_xla_auto_jit=2 ` to accelerate the training. This requires properly setting your CUDA and CUDNN paths in our machine. You can check this whether `which ptxas` gives you a path to the CUDA/bin path in your machine.
 
 - Also see the tips available in [DreamerV2 repository](https://github.com/danijar/dreamerv2/blob/main/README.md#tips).
+
+
+## Tips
+
+# pretrain
+- 数据流: 
+episodes(e.g. pretraining_datasets/rlbench/train_episodes)
+↓
+episode(e.g. push_buttons_wrist_rgb_episode-9-64.npz)
+↓
+chunk(e.g. 26-50)
+↓
+batch
+↓
