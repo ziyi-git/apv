@@ -85,11 +85,11 @@ python apv_finetuning/train.py --logdir {save path} --load_logdir {path to the p
 
 # pretrain
 - 数据流: 
-episodes(e.g. pretraining_datasets/rlbench/train_episodes)
-↓
-episode(e.g. push_buttons_wrist_rgb_episode-9-64.npz)
-↓
-chunk(e.g. 26-50)
-↓
-batch
-↓
+episodes(e.g. pretraining_datasets/rlbench/train_episodes)  
+↓  
+episode(e.g. push_buttons_wrist_rgb_episode-9-64.npz)  
+↓  
+chunk(e.g. 26-50)  
+↓  
+batch  
+↓  
