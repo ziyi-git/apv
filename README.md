@@ -83,13 +83,21 @@ python apv_finetuning/train.py --logdir {save path} --load_logdir {path to the p
 
 ## Tips
 
+# 代码阅读技巧1
+阅读时要忽略batch这个维度：
+例如碰见tensor(16, 25, 64, 64, 3)，不要在意batch=16，直接视作tensor(25, 64, 64, 3)
+例如碰见tensor(16, 64, 64, 3)，不要在意batch=16，直接视作tensor(64, 64, 3)
+
 # pretrain
 - 数据流: 
 episodes(e.g. pretraining_datasets/rlbench/train_episodes)  
 ↓  
 episode(e.g. push_buttons_wrist_rgb_episode-9-64.npz)  
 ↓  
-chunk(e.g. 26-50)  
+chunk(e.g. frame26 - frame50)  
 ↓  
-batch  
+batch(e.g. [16, 25, 64, 64, 3] -> batch=16, chunk=25, image = [64, 64, 3])
 ↓  
+embed(经WorldModel的encoder后为[16,25, 1536])
+↓
+
