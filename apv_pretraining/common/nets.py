@@ -88,6 +88,13 @@ class EnsembleRSSM(common.Module):
             (swap(embed), swap(is_first)),  # (tensor(25, 16, 1536), tensor(25, 16))
             (state, state),
         )
+        ################################################################################################################
+        # 下面以post为例说明(prior和post的例子一样):
+        # post经过swap的变换前后:
+        # {'logit': 25x16x1024, 'stoch': 25x16x32x32, 'deter0': 25x16x32x32}
+        # ↓
+        # {'logit': 16x25x1024, 'stoch': 16x25x32x32, 'deter0': 16x25x32x32} 
+        ################################################################################################################
         post = {k: swap(v) for k, v in post.items()}
         prior = {k: swap(v) for k, v in prior.items()}
         return post, prior
