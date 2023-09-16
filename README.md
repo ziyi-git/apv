@@ -90,14 +90,24 @@ python apv_finetuning/train.py --logdir {save path} --load_logdir {path to the p
 
 # pretrain
 - 数据流: 
-episodes(e.g. pretraining_datasets/rlbench/train_episodes)  
+episodes (e.g. pretraining_datasets/rlbench/train_episodes)  
 ↓  
-episode(e.g. push_buttons_wrist_rgb_episode-9-64.npz)  
+episode (e.g. push_buttons_wrist_rgb_episode-9-64.npz)  
 ↓  
-chunk(e.g. frame26 - frame50)  
+chunk (e.g. frame26 - frame50)  
 ↓  
-batch(e.g. [16, 25, 64, 64, 3] -> batch=16, chunk=25, image = [64, 64, 3])
+batch (e.g. [16, 25, 64, 64, 3] -> batch=16, chunk=25, image = [64, 64, 3])
 ↓  
-embed(经WorldModel的encoder后为[16,25, 1536])
+embed (经WorldModel的encoder后为[16,25, 1536])
 ↓
-
+proir (经self.rssm.observe后为 logit: [16, 25, 32, 32], stoch: [16, 25, 32, 32], deter0: [16, 25, 1024])
+↓
+post (经self.rssm.observe后为  logit: [16, 25, 32, 32], stoch: [16, 25, 32, 32], deter0: [16, 25, 1024])
+↓             
+losses['kl']
+↓
+feat (来自post，[16, 25, 2048]，实为将stoch和deter0堆叠)
+↓
+losses['image'] (经decoder解码后与原始图像的相似性度量)
+↓
+model_loss
