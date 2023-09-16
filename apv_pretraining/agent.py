@@ -72,6 +72,7 @@ class WorldModel(common.Module):
         data = self.preprocess(data)
         embed = self.encoder(data)
         post, prior = self.rssm.observe(embed, data["is_first"], state)
+        # self.config.kl: {'free': 0.0, 'forward': False, 'balance': 0.8, 'free_avg': True}
         kl_loss, kl_value = self.rssm.kl_loss(post, prior, **self.config.kl)
         assert len(kl_loss.shape) == 0
         likes = {}
@@ -83,12 +84,12 @@ class WorldModel(common.Module):
             out = head(inp)
             dists = out if isinstance(out, dict) else {name: out}
             for key, dist in dists.items():
-                like = tf.cast(dist.log_prob(data[key]), tf.float32)
+                like = tf.cast(dist.log_prob(data[key]), tf.float32)  # 可以理解为解码输出的dist和data['image']的相似性？
                 likes[key] = like
-                losses[key] = -like.mean()
+                losses[key] = -like.mean()  # losses["image"]
         model_loss = sum(
             self.config.loss_scales.get(k, 1.0) * v for k, v in losses.items()
-        )
+        )  # 这里将（1）post与prior之间的相似性，（2）以及解码后与输入图像之间的相似性，进行了综合计算得到model_loss用于更新模型？
         outs = dict(
             embed=embed, feat=feat, post=post, prior=prior, likes=likes, kl=kl_value
         )
