@@ -19,7 +19,13 @@ class Replay:
         maxlen=0,
         prioritize_ends=False,
     ):
-        self._directory = pathlib.Path(directory).expanduser()
+        ################################################################################################################
+        # expanduser()处理包含“~”(主目录)的路径，替换为完整路径
+        # self._capacity: Replay对象的dataset最多包含2000000个step，2000000个step消耗完后如何向dataset添加新数据？
+        # self._ongoing: _False？
+        # self._prioritize_ends: True？
+        ################################################################################################################
+        self._directory = pathlib.Path(directory).expanduser()  # 
         self._directory.mkdir(parents=True, exist_ok=True)
         self._capacity = capacity
         self._ongoing = ongoing
@@ -31,14 +37,52 @@ class Replay:
         if load_directory is None:
             load_directory = self._directory
         else:
+            ############################################################################################################
+            # load_directory是预训练数据的加载目录############################################################################################################
             load_directory = pathlib.Path(load_directory).expanduser()
 
         # filename -> key -> value_sequence
+        ################################################################################################################
+        # 一次性加载所有训练数据到self._complete_eps中，eps是episodes的全称
+        ################################################################################################################
         self._complete_eps = load_episodes(load_directory, capacity, minlen)
         # worker -> key -> value_sequence
+        ################################################################################################################
+        # 这里还不清楚self._ongoing_eps的具体用途
+        # 抛开具体用途解释 collections.defaultdict( lambda: collections.defaultdict(list) ):
+        # 1. 先看外层的 collections.defaultdict: 假设dd = collections.defaultdict( lambda: ... ) ，当我们查询一个dd中不存在的
+        #    key时，dd会调用lambda函数返回的对象作为key的value;
+        # 2. 再看内层的 collections.defaultdict(list): 假设dd = collections.defaultdict(list)，当我们查询一个dd中不存在的key
+        #    时，dd会返回一个空list作为key的value；
+        # 
+        # 举例:
+        # dd = collections.defaultdict( lambda: collections.defaultdict(list) )
+        # dd['a'] >>> defaultdict(<class 'list'>, {})
+        # dd >>> {'a': defaultdict(<class 'list'>, {})}
+        # 
+        # 猜测self._ongoing_eps = collections.defaultdict( lambda: collections.defaultdict(list) )的具体用途:
+        # 1. self._ongoing_eps的内部构造应当与self._complete_eps保持一致;
+        # 2. 外层collections.defaultdict接受一个文件名作为key, 例如'beat_the_buzz_front_rgb_episode-0-140.npz';
+        # 3. 内层collections.defaultdict接受{'image': list, 'action': list, 'reward': list, 'is_terminal': list, ...}
+        # 因此，self._ongoing_eps与self._complete_eps在形式上一致:
+        # {
+        #  'beat_the_buzz_front_rgb_episode-0-140.npz': {'image': .., 'action': .., 'reward': .., 'is_terminal': ..},
+        #  ...,
+        #  ...,
+        # }
+        ################################################################################################################
         self._ongoing_eps = collections.defaultdict(
             lambda: collections.defaultdict(list)
         )
+        ################################################################################################################
+        # self._total_episodes, self._total_steps是指训练过程已经经历了多少step，因为中间结果保存在directory
+        # self._loaded_episodes是指加载了多少episode，因为load_directory是原始的pretraining数据的目录
+        # self._loaded_steps是指加载了多少step，因为load_directory是原始的pretraining数据的目录
+        # 
+        # NOTE:
+        # self._loaded_steps = sum(eplen(x) for x in self._complete_eps.values())
+        # eplen(x) for x in self._complete_eps.values()这一句作为参数，实现了循环累加.
+        ################################################################################################################
         self._total_episodes, self._total_steps = count_episodes(directory)
         self._loaded_episodes = len(self._complete_eps)
         self._loaded_steps = sum(eplen(x) for x in self._complete_eps.values())
@@ -230,7 +274,26 @@ def save_episode(directory, episode):
             f2.write(f1.read())
     return filename
 
-
+########################################################################################################################
+# 数据集说明
+# rlbench
+# - 99个tasks: 
+#       beat_the_buzz
+#       block_pyramid
+#       change_channel
+#       ...
+# - 5 camera views per task: 
+#       beat_the_buzz_front
+#       beat_the_buzz_left
+#       beat_the_buzz_overhead
+#       beat_the_buzz_wrist
+#       beat_the_buzz_right.
+# - 10 demonstrations (episode) per camera view: 
+#       beat_the_buzz_front_rgb_episode-0-140.npz
+#       beat_the_buzz_front_rgb_episode-1-162.npz
+#       ...
+# NOTE: 似乎丢掉了一些episode，按理应该有99 * 5 * 10 = 4950个episodes，但实际只有3987个.
+########################################################################################################################
 def load_episodes(directory, capacity=None, minlen=1):
     # The returned directory from filenames to episodes is guaranteed to be in
     # temporally sorted order.
@@ -238,22 +301,37 @@ def load_episodes(directory, capacity=None, minlen=1):
     if capacity:
         num_steps = 0
         num_episodes = 0
-        for filename in reversed(filenames):
-            length = int(str(filename).split("-")[-1][:-4])
+        for filename in reversed(filenames):  # reversed指从最后一个元素开始向前取数据
+            length = int(str(filename).split("-")[-1][:-4])  # beat_the_buzz_front_rgb_episode-0-140.npz -> length=140
             num_steps += length
             num_episodes += 1
             if num_steps >= capacity:
                 break
-        filenames = filenames[-num_episodes:]
+        filenames = filenames[-num_episodes:]  # 假如取了10个episodes而第10个episode导致num_steps>=capacity，则取后9个
     episodes = {}
     for filename in filenames:
         try:
             with filename.open("rb") as f:
+                ########################################################################################################
+                # 以"beat_the_buzz_front_rgb_episode-0-140.npz"所存储的episode为例:
+                # 'image':       (140, 64, 64, 3)
+                # 'action':      (140, 4)         在pretraining数据集中，加载时已全部设定为[.0, .0, .0, .0]
+                # 'reward':      (140,)           在pretraining数据集中，加载时已全部设定为.0
+                # 'is_terminal': (140,)           仅episode最后一个元素为True
+                # 'is_first':    (140,)           仅episode第一个元素为True ########################################################################################################
                 episode = np.load(f)
                 episode = {k: episode[k] for k in episode.keys()}
         except Exception as e:
             print(f"Could not load episode {str(filename)}: {e}")
             continue
+        ################################################################################################################
+        # episodes就是字典:
+        # {
+        #  'beat_the_buzz_front_rgb_episode-0-140.npz': {'image': .., 'action': .., 'reward': .., 'is_terminal': ..},
+        #  ...,
+        #  ...,
+        # }
+        ################################################################################################################
         episodes[str(filename)] = episode
     return episodes
 
@@ -270,4 +348,7 @@ def convert(value):
 
 
 def eplen(episode):
+    ####################################################################################################################
+    # -1是指每个episode的第1步是起始步，不算在内？
+    ####################################################################################################################
     return len(episode["image"]) - 1
