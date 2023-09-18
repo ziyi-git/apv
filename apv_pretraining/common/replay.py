@@ -122,22 +122,22 @@ class Replay:
         example = next(iter(self._generate_chunks(length)))
         dataset = tf.data.Dataset.from_generator(
             lambda: self._generate_chunks(length),
-            # {'image': dtype('uint8'), 'is_terminal': dtype('bool'),
-            #  'is_first': dtype('bool'), 'action': dtype('float32')}
             {k: v.dtype for k, v in example.items()},
-            # {'image': (50, 64, 64, 3), 'is_terminal': (50,),
-            #  'is_first': (50,), 'action': (50, 1)}
             {k: v.shape for k, v in example.items()},
         )
         # <BatchDataset shapes: 
         # {image: (16, 50, 64, 64, 3), is_terminal: (16, 50), is_first: (16, 50), action: (16, 50, 1)}, 
         #  types: {image: tf.uint8, is_terminal: tf.bool, is_first: tf.bool, action: tf.float32}>
         dataset = dataset.batch(batch, drop_remainder=True)
-        dataset = dataset.prefetch(5)  # 允许预先取5个batch的数据放在内存中
+        dataset = dataset.prefetch(5)  # 确保始终有5个batch已经加载到内存中供模型调用.
         return dataset
 
     def _generate_chunks(self, length):
         sequence = self._sample_sequence()
+        ################################################################################################################
+        # 持续从上述self._sample_sequence()采样的sequence中按顺序截取长度为length的chunk:
+        # sequence剩余元素数量不足length: 内部while循环导致sequence中所有元素被取完并触发len(sequence["reward"]) < 1，此时重新执行# 采样 sequence = self._sample_sequence() 得到新的sequence.  
+        ################################################################################################################
         while True:
             chunk = collections.defaultdict(list)
             added = 0
@@ -154,6 +154,9 @@ class Replay:
             yield chunk
 
     def _sample_sequence(self):
+        """
+        随机选择一个episode, 并从episode中随机获取一个length大小处于[selg._minlen, self._maxlen]范围内的sequence.
+        """
         episodes = list(self._complete_eps.values())
         if self._ongoing:
             episodes += [
@@ -162,6 +165,16 @@ class Replay:
         episode = self._random.choice(episodes)
         total = len(episode["reward"])
         length = total
+        ################################################################################################################
+        # 从episode中选择一个起点，向后截取长度为length的序列作为sequence:
+        # 1. sequence的length必须是[self._minlen, self._maxlen]内的随机数.
+        # 2. sequence的upper(起点上限)为total - length + 1.
+        # NOTE: 按照python数组的下标法, upper应该是total - 1 - length + 1 = total - length. 对此第4条可解释.
+        # 3. 为了更靠近末尾(self._prioritize_ends为True), uppper可以后移self._minlen个位点.
+        # 4. sequence的index(真正的采样起点)从[0, upper)中随机获取, 右开区间可解释NOTE。此外由于第3条，需要用min(..., total - 
+        #    length)加以限制避免越界.
+        # NOTE: 为了将所有的sequence的length限定为等长25, self._minlen和self._maxlen都设定为25.
+        ################################################################################################################
         if self._maxlen:
             length = min(length, self._maxlen)
         # Randomize length to avoid all chunks ending at the same time in case the
@@ -172,6 +185,10 @@ class Replay:
         if self._prioritize_ends:
             upper += self._minlen
         index = min(self._random.randint(upper), total - length)
+        ################################################################################################################
+        # 依次episode中的'image', 'action', 'reward', 'is_terminal', 'is_first'放入sequence
+        # NOTE: 注意convert方法对值类型做了转换
+        ################################################################################################################
         sequence = {
             k: convert(v[index : index + length])
             for k, v in episode.items()
@@ -216,6 +233,12 @@ class ReplayWithoutAction(Replay):
         )
 
     def _generate_chunks(self, length):
+        """
+        注释参考Replay类中的_generate_chunks方法.
+        NOTE: 与Replay类中的_generate_chunks方法不同的是，ReplayWithoutAction
+        去掉了sequence中的"reward"，保留"is_first", "is_last", "is_terminal",
+        "image".
+        """
         sequence = self._sample_sequence()
         sequence = {
             k: v
@@ -250,7 +273,13 @@ class ReplayWithoutAction(Replay):
                     sequence["action"] = np.zeros(
                         (sequence["image"].shape[0], 1), dtype=np.float32
                     )
-
+            ###########################################################################################################
+            # 为什么使用np.concatenate(v)?
+            # chunk = collections.defaultdict(list)会使chunk中的所有v都是一个list，例如
+            # chunk['is_terminal'] >>> [array(False, False, ..., False)]
+            # np.concatenate(chunk['is_terminal']) >>> array(False, False, ..., False)
+            # np.concatenate(...)将list转为了数组.
+            ###########################################################################################################
             chunk = {k: np.concatenate(v) for k, v in chunk.items()}
             yield chunk
 
