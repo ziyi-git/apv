@@ -45,6 +45,22 @@ class WorldModel(common.Module):
         self.config = config
         self.tfstep = tfstep
         self.rssm = common.EnsembleRSSM(**config.rssm)
+        ################################################################################################################
+        # config.encoder:
+        # {
+        #     'mlp_keys': '$^',
+        #     'cnn_keys': 'image', 
+        #     'act': 'elu', 
+        #     'norm': 'none', 
+        #     'cnn_depth': 48, 
+        #     'cnn_kernels': (4, 4, 4, 4), 
+        #     'mlp_layers': (400, 400, 400, 400)
+        # }
+        # 1. 在encoder中没有要mlp, 所以用了一个很难被匹配的正则表达式'$^'
+        # 2. config.encoder的类型并不是dict, type(config.encoder) >>> <class 'common.config.Config'>，但仍然可以用
+        #    **config.encoder解包传给形参
+        # NOTE: config到底是如何构建的，还需要详细理解train_video.py中的代码.
+        ################################################################################################################
         self.encoder = common.Encoder(shapes, **config.encoder)
         self.heads = {}
         self.heads["decoder"] = common.Decoder(shapes, **config.decoder)
