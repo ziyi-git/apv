@@ -310,12 +310,12 @@ class Encoder(common.Module):
         # }
         # key为'image', shape为(64, 64, 3)
         ################################################################################################################
-        key, shape = list(self.shapes.items())[0]
-        batch_dims = data[key].shape[: -len(shape)] 
+        key, shape = list(self.shapes.items())[0]  # 这里默认self.shapes['image']是第一个item，但感觉这样写有风险.
+        batch_dims = data[key].shape[: -len(shape)]  # data['image'].shape[: -3]
         data = {
             k: tf.reshape(v, (-1,) + tuple(v.shape)[len(batch_dims) :])
             for k, v in data.items()
-        }  # [16, 25, 64, 64, 3] -> [400, 64, 64, 3]
+        }  # [16, 25, 64, 64, 3] -> [400, 64, 64, 3]，相当于把400个64x64x3的图像构成batch，符合GPU(或tf库)的处理
         outputs = []
         if self.cnn_keys:
             outputs.append(self._cnn({k: data[k] for k in self.cnn_keys}))
@@ -326,7 +326,13 @@ class Encoder(common.Module):
 
     def _cnn(self, data):
         ################################################################################################################
-        # data实际为{'image': <tf.Tensor: shape=(400, 64, 64 ,3)}，400是因为16 * 25
+        # data: {'image': <tf.Tensor: shap e=(400, 64, 64 ,3)}
+        # data.values(): tensor(400, 64, 64 ,3)
+        # list(data.values()): [tensor(400, 64, 64 ,3)]
+        # 
+        # tf.concat(list(data.values()))对只含单个元素的list操作，相当于取出了这个元素作为一个单独的tensor(400, 64, 64 ,3).
+        # 如果换成np.concatenate(list(data.values())), 则相当于取出了这个元素作为一个单独的array(400, 64, 64 ,3).
+        # NOTE: 为什么不直接使用 x = data.values()???
         ################################################################################################################
         x = tf.concat(list(data.values()), -1)
         x = x.astype(prec.global_policy().compute_dtype)
@@ -336,13 +342,13 @@ class Encoder(common.Module):
         for i, kernel in enumerate(self._cnn_kernels):
             depth = 2 ** i * self._cnn_depth  # ? 2^i * 48
             ############################################################################################################
-            # 检查是否有名为"conv{i}"的层，没有则创建：channel数为depth，kernel size为kernel，步长为2
+            # 检查是否有名为"conv{i}"的层，没有则创建：channel数为depth(kernel数量)，kernel size为kernel，步长为2
             ############################################################################################################
             x = self.get(f"conv{i}", tfkl.Conv2D, depth, kernel, 2)(x)
             x = self.get(f"convnorm{i}", NormLayer, self._norm)(x)
             x = self._act(x)
         ################################################################################################################
-        # (400, 2, 2, 384) -> (400, 1536)
+        # (400, 2, 2, 384) -> (400, -1)或(400, 1536)
         ################################################################################################################
         return x.reshape(tuple(x.shape[:-3]) + (-1,))
 
