@@ -24,6 +24,12 @@ class Agent(common.Module):
         # {'kl_loss' : *, 'image_loss': *, 'model_kl': *, 'prior_ent': *, 
         #  'post_ent': *, 'model_loss': *, 'model_loss_scale': *, 
         #  'model_grad_norm': *}
+        ##############################################################################################################
+        # 疑问: 根据"train_agent = common.CarryOverState(agnt.train)"，state为一个chunk的最后一个post，该state会作为
+        # "self.wm.train(data, state)"中的state继续参与下一个chunk的训练过程，即作为下一个chunk的起点的z_t-1角色。问题是:
+        # 由于_sample_sequence()每一次都会随机选择一个episode且随机选择一个sequence，因此两个chunk之间是不连续的？那么下面的
+        # 调用方法，似乎是有问题的。
+        ##############################################################################################################
         state, outputs, mets = self.wm.train(data, state)
         metrics.update(mets)
         start = outputs["post"]  # start not used?
