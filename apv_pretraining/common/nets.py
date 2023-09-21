@@ -159,12 +159,12 @@ class EnsembleRSSM(common.Module):
     ####################################################################################################################
     # 下图展示如何通过t-1时刻的post计算得到t时刻的prior(img_step实现)和post(obs_step实现):
     #
-    # post        deter0        deter1        deter2        stoch                         ---------------
-    #               ||            ||            ||            ↑    
-    #               ||            ||            ||            ↑ 
-    #               ||            ||            ||            ↑ ←←←←←← embed                    t时刻
-    #               ||            ||            ||            ↑
-    #               ||            ||            ||            ↑
+    # post        deter0        deter1        deter2 →→     stoch                         ---------------
+    #               ||            ||            ||     ↓      ↑    
+    #               ||            ||            ||     ↓      ↑ 
+    #               ||            ||            ||       →→→→ ↑ ←←←←←← embed                    t时刻
+    #               ||            ||            ||           
+    #               ||            ||            ||           
     # prior       deter0 →→     deter1 →→     deter2 →→→→→→ stoch                         --------------- 
     #                ↑     ↓      ↑      ↓      ↑
     #                ↑     ↓      ↑      ↓      ↑
@@ -176,8 +176,24 @@ class EnsembleRSSM(common.Module):
     #                      ↑                                   ↓
     #                      ←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←
     #
-    # (1) t时刻的post和prior使用同一套deter0, deter1, deter2
-    # (2) t时刻的prior["stoch"]即为z^_t, post["stoch"]即为z_t
+    # [1] t时刻的post和prior使用同一套deter0, deter1, deter2(代码中只有deter0, 这里为了扩展理解增加到了deter2)
+    # [2] t时刻的prior["stoch"]即为z^_t, post["stoch"]即为z_t
+    # 
+    # 与论文中 B.1. Action-free Latent Video Prediction Model 中公式(11)的对比理解:
+    # [1] Recurrent model:      h_{t}^{AF} = f_{\phi }(h_{t-1}^{AF}, z_{t-1}^{AF})
+    #                           · h_{t-1}^{AF} : t-1时刻post&prior["deter2"], 代码中是post&prior["deter0"]
+    #                           · z_{t-1}^{AF} : t-1时刻post["stoch"]
+    #                           · h_{t}^{AF}   :   t时刻post&prior["deter2"], 代码中是post&prior["deter0"]
+    # [2] Representation model: z_{t}^{AF} \sim q_{\phi}(z_{t}^{AF} \mid h_{t}^{AF}, o_{t})
+    #                           · z_{t}^{AF} : t时刻post["stoch"]
+    #                           · h_{t}^{AF} : t时刻post&prior["deter2"], 代码中是post&prior["deter0"]
+    #                           · o_{t}      : t时刻embed
+    # [3] Transition predictor: \hat{z}_{t}^{AF}  \sim  p_{\phi }(\hat{z}_{t}^{AF} \mid {h}_{t}^{AF})
+    #                           · \hat{z}_{t}^{AF} : t时刻prior["stoch"]
+    #                           · h_{t}^{AF}       : t时刻post&prior["deter2"], 代码中是post&prior["deter0"]
+    # [4] Image decoder:        \hat{o}_{t}  \sim  p_{\phi }(\hat{o}_{t} \mid h_{t}^{AF}, z_{t}^{AF})
+    #                           · h_{t}^{AF} : t时刻post&prior["deter2"], 代码中是post&prior["deter0"]
+    #                           · z_{t}^{AF} : t时刻post["stoch"]
     ####################################################################################################################
     @tf.function
     def obs_step(self, prev_state, embed, is_first, sample=True):
@@ -205,6 +221,17 @@ class EnsembleRSSM(common.Module):
             lambda x: tf.einsum("b,b...->b...", 1.0 - is_first.astype(x.dtype), x),
             (prev_state,),
         )
+        ################################################################################################################
+        # post : 对于"deter0 + embed -> stats['logit'] -> stoch"的浅显理解:
+        # [1] 将deter0和embed组合并提取特征, 从特征中去构建分布logit, logit维度为(32, 32).
+        # [2] 我暂时理解"(32, 32)"为32个随机事件的概率分布(32行), 每个随机事件有32个可能出现的状态(一行32个元素表示不同状态发生的概率).
+        # [3] stoch是针对32个随机事件独立采样，每个随机事件采集到的状态用OneHot编码来描述，最终构成了32个OneHot编码.
+        # 
+        # logit: 
+        # logit通常指的是神经网络模型的原始、未归一化的输出。
+        # logit在OneHotDist的初始化过程中，完成了softmax以转成概率分布的形式.
+        # 代码会从这个分布中采样来获得stoch.
+        ################################################################################################################
         prior = self.img_step(prev_state, sample)  # deter0: h_{t}, stoch: z^_{t}, logit^
         x = tf.concat([prior[f"deter{self._rnn_layers - 1}"], embed], -1)
         x = self.get("obs_out", tfkl.Dense, self._hidden)(x)
@@ -214,9 +241,6 @@ class EnsembleRSSM(common.Module):
         dist = self.get_dist(stats)
         stoch = dist.sample() if sample else dist.mode()  # h_{t} + o_{t} -> z_{t}
         post = {"stoch": stoch, **stats}
-        ################################################################################################################
-        # post和prior的deter部分是共享的
-        ################################################################################################################
         for i in range(self._rnn_layers):
             post[f"deter{i}"] = prior[f"deter{i}"]
         return post, prior
@@ -262,6 +286,9 @@ class EnsembleRSSM(common.Module):
             x = self.get(f"img_out_{k}", tfkl.Dense, self._hidden)(inp)
             x = self.get(f"img_out_norm_{k}", NormLayer, self._norm)(x)
             x = self._act(x)
+            ############################################################################################################
+            # _suff_stats_ensemble方法中包含了_suff_stats_layer
+            ############################################################################################################
             stats.append(self._suff_stats_layer(f"img_dist_{k}", x))
         stats = {k: tf.stack([x[k] for x in stats], 0) for k, v in stats[0].items()}
         stats = {
