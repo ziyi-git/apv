@@ -83,6 +83,30 @@ class EnsembleRSSM(common.Module):
         swap = lambda x: tf.transpose(x, [1, 0] + list(range(2, len(x.shape))))  # (16, 25, 1536) -> (25, 16, 1536)
         if state is None:
             state = self.initial(tf.shape(embed)[0])
+        ################################################################################################################
+        # 1. "common.static_scan"在其内部按时间t先后25次调用"self.obs_step"方法:
+        #    self.obs_step((post_t-1, prior_t-1)[0], swap(embed)[t], swap(is_first)[t])
+        # 2. 由于t=0时, (post_t-1, prior_t-1)不存在，所以用(state, state)代替。即上一次的chunk的最后一组(post, prior)
+        #
+        # 整个调用过程如下:
+        # self.obs_step((state, state)[0], swap(embed)[0], swap(is_first)[0])
+        # ↓
+        # (post, prior)
+        # ↓
+        # self.obs_step((post, prior)[0], swap(embed)[1], swap(is_first)[1])
+        # ↓
+        # (post, prior)
+        # ↓
+        # self.obs_step((post, prior)[0], swap(embed)[2], swap(is_first)[2])
+        # ↓
+        # ...
+        # ↓
+        # (post, prior)
+        # ↓
+        # self.obs_step((post, prior)[0], swap(embed)[24], swap(is_first)[24])
+        # ↓
+        # (post, prior)
+        ################################################################################################################
         post, prior = common.static_scan(
             lambda prev, inputs: self.obs_step(prev[0], *inputs),
             (swap(embed), swap(is_first)),  # (tensor(25, 16, 1536), tensor(25, 16))
@@ -132,9 +156,51 @@ class EnsembleRSSM(common.Module):
             dist = tfd.MultivariateNormalDiag(mean, std)
         return dist
 
+    ####################################################################################################################
+    # 下图展示如何通过t-1时刻的post计算得到t时刻的prior(img_step实现)和post(obs_step实现):
+    #
+    # post        deter0        deter1        deter2        stoch                         ---------------
+    #               ||            ||            ||            ↑    
+    #               ||            ||            ||            ↑ 
+    #               ||            ||            ||            ↑ ←←←←←← embed                    t时刻
+    #               ||            ||            ||            ↑
+    #               ||            ||            ||            ↑
+    # prior       deter0 →→     deter1 →→     deter2 →→→→→→ stoch                         --------------- 
+    #                ↑     ↓      ↑      ↓      ↑
+    #                ↑     ↓      ↑      ↓      ↑
+    #                ↑      →→→→→ ↑       →→→→→ ↑                                               t-1时刻
+    #                ↑            ↑             ↑
+    #                ↑  ←← ↑      ↑             ↑
+    #                ↑     ↑      ↑             ↑
+    # post        deter0   ↑    deter1        deter2        stoch                          ---------------
+    #                      ↑                                   ↓
+    #                      ←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←
+    #
+    # (1) t时刻的post和prior使用同一套deter0, deter1, deter2
+    # (2) t时刻的prior["stoch"]即为z^_t, post["stoch"]即为z_t
+    ####################################################################################################################
     @tf.function
     def obs_step(self, prev_state, embed, is_first, sample=True):
+        ################################################################################################################
+        # prev_state 是指 t-1时刻的post
+        ################################################################################################################
         # if is_first.any():
+        
+        ################################################################################################################
+        # [1] tf.einsum("b,b...->b...", m, n)
+        #     - "b,b...->b..."表示将形状为b的张量m, 和形状为b...的张量n, 相乘得到形状为b...的张量
+        #     - 三个张量b, b..., b...的首维度相同, b...表示首维度后其它的维度可以是任意的形状
+        #     - 举个例子:
+        #     - m = [1, 2, 3]  # 维度为3
+        #     - n = [[6, 6], [7, 7], [8, 8]]  # 维度为[3, 2]
+        #     - tf.einsum("b,b...->b...", m, n) >>> [[6, 6], [14, 14], [24, 24]]  # [1 * [6, 6], 2 * [7, 7], 3 * [8, 8]]
+        # [2] tf.einsum("b,b...->b...", 1.0 - is_first.astype(x.dtype), x)
+        #     - is_first.astype(x.dtype)代表将形状为b的张量, x代表形状为b...的张量, 这里b实际为16
+        # [3] tf.nest.map_structure(lambda x: ..., (prev_state, ))
+        #     - prev_state中包含'logit', 'stoch', 'deter0'3个item, 形状分别为(16, 32, 32), (16, 32, 32), (16, 1024)
+        #     - 1.0 - is_first.astype(prev_state)的形状为(16,)
+        #     - 上述代码的意义是，如果is_first为True, 则将prev_state中的'logit', 'stoch', 'deter0'的所有元素置为0.
+        ################################################################################################################
         (prev_state,) = tf.nest.map_structure(
             lambda x: tf.einsum("b,b...->b...", 1.0 - is_first.astype(x.dtype), x),
             (prev_state,),
@@ -148,18 +214,15 @@ class EnsembleRSSM(common.Module):
         dist = self.get_dist(stats)
         stoch = dist.sample() if sample else dist.mode()  # h_{t} + o_{t} -> z_{t}
         post = {"stoch": stoch, **stats}
+        ################################################################################################################
+        # post和prior的deter部分是共享的
+        ################################################################################################################
         for i in range(self._rnn_layers):
             post[f"deter{i}"] = prior[f"deter{i}"]
         return post, prior
-
+    
     @tf.function
     def img_step(self, prev_state, sample=True):
-        ################################################################################################################
-        # prev_state -> prev_state["stoch"] -> temp -> deter(h_{t}) -> stoch(zhat_{t})
-        #       ↑                                        |                 |
-        #       ↑                                          --------↓--------
-        #       ------------------------------------------------prior 
-        ################################################################################################################
         prev_stoch = self._cast(prev_state["stoch"])
         if self._discrete:
             ############################################################################################################
@@ -168,38 +231,15 @@ class EnsembleRSSM(common.Module):
             ############################################################################################################
             shape = prev_stoch.shape[:-2] + [self._stoch * self._discrete]
             prev_stoch = tf.reshape(prev_stoch, shape)
-        ################################################################################################################
-        # 计算先验h_{t}，利用公式Appendix B中公式(11):
-        # h_{t} = f_phai(h_{t-1}, z_{t-1})
-        # 但是，看看Appendix B中公式(13)：
-        # h_{t} = f_phai(h_{t-1}, z_{t-1}, a_{t-1})
-        # 也就是在计算h_{t}时，正常的action_conditional计算过程是要考虑a_{t-1}的，而且是要两步来完成计算：
-        # step1: temp = f_temp(z_{t-1}, a_{t-1})
-        # step2: h_{t} = f_phai(h_{t-1}, temp)
-        # 因此下面"4句"实际执行了step1得到temp，由于action_free的原因，用self.zero_action(prev_stoch.shape[0])来抹掉了行为的影响
-        ################################################################################################################
         x = tf.concat([prev_stoch, self.zero_action(prev_stoch.shape[0])], -1)  # (16, 1074)
         x = self.get("img_in", tfkl.Dense, self._hidden)(x)  # (16, 1024)
-        x = self.get("img_in_norm", NormLayer, self._norm)(x)
-        x = self._act(x)  # -> x is temp
-        ################################################################################################################
-        # 假设self._cells有3个GRUCell类实例串联，计算过程如下：
-        #    self._cells[0]          self._cells[1]          self._cells[2]
-        #
-        # prev_state["deter0"]    prev_state["deter1"]    prev_state["deter2"]
-        #          +                      +                       +
-        #        temp           -------- temp           -------- temp
-        #          ↓            |         ↓             |         ↓
-        #       deter0 ----------       deter1 ----------       deter2
-        #
-        #     prior["deter0"]        prior["deter1"]         prior["deter2"]
-        # 实际self._cells仅有1个GRUCell类实例，因此只输出了deter0，也就是h_{t}
-        ################################################################################################################
+        x = self.get("img_in_norm", NormLayer, self._norm)(x)  # (16, 1024)
+        x = self._act(x)  # (16, 1024)
         deters = []
         for i in range(self._rnn_layers):
             deter = prev_state[f"deter{i}"]
             ############################################################################################################
-            # 由于self._cells[i]的call函数return output, [output]，所以x就是deter[0]
+            # 由于self._cells[i]的call函数"return output, [output]"，所以x就是deter[0]
             ############################################################################################################
             x, deter = self._cells[i](x, [deter])
             deters.append(deter[0])
