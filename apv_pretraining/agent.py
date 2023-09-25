@@ -99,6 +99,10 @@ class WorldModel(common.Module):
         assert len(kl_loss.shape) == 0
         likes = {}
         losses = {"kl": kl_loss}
+        ################################################################################################################
+        #
+        #
+        ################################################################################################################
         feat = self.rssm.get_feat(post)
         for name, head in self.heads.items():
             grad_head = name in self.config.grad_heads
@@ -106,9 +110,37 @@ class WorldModel(common.Module):
             out = head(inp)
             dists = out if isinstance(out, dict) else {name: out}
             for key, dist in dists.items():
+                ########################################################################################################
+                # [1] 假设dist是decoder的输出, shape为(64, 64, 3)。data['image']也是(64, 64, 3)
+                # [2] dist.log_prob将dist和data['image']进行逐元素的比较
+                # [3] 假设用p_d代表dist分布，逐元素比较其实是(以data['image'][i][j][k]为例)：将data['image'][i][j][k]代入p_d,
+                #     计算出y_hat = p_d(data['image'][i][j][k])，而目标的y应该是1(data['image'][i][j][k]是已经发生的事)，所以
+                #     y_hat应该是越接近1越好。从代码来看，dist.log_prob(data[key]应该越大越好。
+                # 用一个具体的例子来帮助理解:
+                # 我们用形状为(3,)的dist和image来代替说明形状为(64, 64, 3)的dist和image:
+                # 假设image为: [1.0, 2.0, 3.0]
+                # 假设dist是一个多元高斯分布，平均值为: [0.0, 1.0, 2.0], 标准差为: [1.0, 1.0, 1.0]
+                # 那么对于image中的每个元素，log_prob在内部用
+                # \log p(x) = \frac{1}{2} \log (2 \pi \sigma ^2) - \frac{(x - \mu ^2)}{2 \sigma ^2}
+                # 来进行计算
+                # 对于image[0], 配套的参数为 \mu = 0.0, \sigma = 1.0, 根据上述公式的计算结果是-1.42
+                # 对于image[1], 配套的参数为 \mu = 1.0, \sigma = 1.0, 根据上述公式的计算结果是-1.42
+                # 对于image[2], 配套的参数为 \mu = 2.0, \sigma = 1.0, 根据上述公式的计算结果是-1.42
+                # 因此，dist.log_prob(image) = -4.26
+                # 每个p(x)肯定是越接近1越好，那么logp(x)肯定是越接近0越好，对应的-logp(x)也是越接近0越好，越小越好。
+                # 相当于image中的x是已经发生的事，那么这个已经发生的事，代入p(x)时，当然是越接近1越好。
+                ########################################################################################################
                 like = tf.cast(dist.log_prob(data[key]), tf.float32)  # 可以理解为解码输出的dist和data['image']的相似性？
                 likes[key] = like
                 losses[key] = -like.mean()  # losses["image"]
+        ################################################################################################################
+        # losses是一个字典 {'kl': 100, 'image': 100}，这里假设'kl'和'image'都是100.
+        # self.config.loss_scales是一个字典{'kl': 0.1}，它代表losses['kl']的权重为0.1
+        # 注意没有存储'image'的权重，因此在self.config.loss_scales.get(k, 1.0)时，用1.0这个参数来代替'image'的权重，他表示如果找
+        # 不到对应的权重，就用1.0代替。
+        # 因此下面的计算过程是：
+        # (self.config.loss_scales['kl'] * losses['kl']) + (self.config.loss_scales['image'] * 0.1)
+        ################################################################################################################
         model_loss = sum(
             self.config.loss_scales.get(k, 1.0) * v for k, v in losses.items()
         )  # 这里将（1）post与prior之间的相似性，（2）以及解码后与输入图像之间的相似性，进行了综合计算得到model_loss用于更新模型？
