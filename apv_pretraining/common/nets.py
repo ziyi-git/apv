@@ -322,6 +322,18 @@ class EnsembleRSSM(common.Module):
             value = kld(self.get_dist(lhs), self.get_dist(rhs))
             loss = tf.maximum(value, free).mean()
         else:
+            ############################################################################################################
+            # NetA --> prior --> + embed --> NetB -->   post, Net基于embed输出了post.
+            #           ↑  ↑                            ↑   ↑
+            #           ↑  ↑                            ↑   ↑
+            #           ↑   ←←←[1]←←   loss_lhs  →[1]→ⓧ→  ↑
+            #           ↑                                   ↑
+            #           ↑  ←←ⓧ←[2]←←←  loss_rhs  →[2]→→→  ↑
+            # [1] loss_lhs只用于更新prior之前的网络参数, loss_rhs只用于更新介于prior和post之间的网络参数.
+            # [2] loss_lhs和loss_rhs都变味loss = mix * loss_lhs + (1 - mix) * loss_rhs, 这个loss被
+            #     认为是正则化策略的产物: 在更新prior之前的网络参数时也考虑了post部分的影响, 在更新prior和
+            #     post之间的网络参数时也考虑了prior部分的影响，
+            ############################################################################################################
             value_lhs = value = kld(self.get_dist(lhs), self.get_dist(sg(rhs)))
             value_rhs = kld(self.get_dist(sg(lhs)), self.get_dist(rhs))
             if free_avg:
