@@ -471,7 +471,7 @@ class Decoder(common.Module):
     def __call__(self, features):
         features = tf.cast(features, prec.global_policy().compute_dtype)
         outputs = {}
-        if self.cnn_keys:
+        if self.cnn_keys:  # 'image'
             outputs.update(self._cnn(features))
         if self.mlp_keys:
             outputs.update(self._mlp(features))
