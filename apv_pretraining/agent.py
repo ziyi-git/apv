@@ -170,8 +170,15 @@ class WorldModel(common.Module):
 
     @tf.function
     def video_pred(self, data, key):
+        ################################################################################################################
+        # data['image'] --> func encoder --> embed --> func observe --> states --> post --> func get_feat --> feat
+        #                                         
+        #                                                                                                  <-- recon
+        #  
+        # truth(data['image'])
+        ################################################################################################################
         decoder = self.heads["decoder"]
-        truth = data[key][:6] + 0.5
+        truth = data[key][:6] + 0.5  # 从batch中取前6个
         embed = self.encoder(data)
         states, _ = self.rssm.observe(embed[:6, :5], data["is_first"][:6, :5])
         recon = decoder(self.rssm.get_feat(states))[key].mode()[:6]
