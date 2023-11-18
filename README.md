@@ -42,7 +42,7 @@ Get resources you need in below links:
 Get dependencies:
 ```
 sudo apt update
-sudo apt update sudo apt install libosmesa6-dev libgl1-mesa-dev libgl1-mesa-glx libglew-dev patchelf libglfw3 libglfw3-dev
+sudo apt install libosmesa6-dev libgl1-mesa-dev libgl1-mesa-glx libglew-dev patchelf libglfw3 libglfw3-dev libxcursor-dev libxinerama-dev
 ```
 
 Install mujoco according to this [website](https://zhuanlan.zhihu.com/p/352304615).
