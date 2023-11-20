@@ -11,10 +11,10 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "python": "/home/ubuntu/anaconda3/envs/env_apv/bin/python",
+            "python": "/usr/bin/python",
             "args": [
-                "--logdir", "/home/ubuntu/workspace/data/apv/debug_pretrain",
-                "--load_logdir", "/home/ubuntu/workspace/data/apv/pretraining_datasets/rlbench",
+                "--logdir", "/workspace/data/apv/debug_pretrain",
+                "--load_logdir", "/workspace/data/apv/pretraining_datasets/rlbench",
                 "--configs", "metaworld_pretrain"
             ]
         }
