@@ -56,8 +56,8 @@ def main():
     # True: Eager Execution模式用于debug，不创建后续的计算图
     # False: JIT(Just-In-Time)模式在运行时将计算图编译成机器码，提高执行速度
     ####################################################################################################################
-    # tf.config.experimental_run_functions_eagerly(not config.jit)
-    tf.config.experimental_run_functions_eagerly(True)
+    tf.config.experimental_run_functions_eagerly(not config.jit)
+    # tf.config.experimental_run_functions_eagerly(True)
     message = "No GPU found. To actually train on CPU remove this assert."
     assert tf.config.experimental.list_physical_devices("GPU"), message
     ####################################################################################################################
